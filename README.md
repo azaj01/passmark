@@ -7,16 +7,26 @@ Passmark uses AI models to execute natural language steps via Playwright, with i
 ## Quick Start
 
 ```bash
-npm init playwright@latest
+npm init playwright@latest # select the default options and set language to TypeScript
 cd <your-project>
 npm install passmark
 ```
 
-We need at least one model from Anthropic and one from Google to use Passmark's multi-model consensus features. Set the required environment variables:
+We need at least one model from Anthropic and one from Google to use Passmark's multi-model consensus features. Set the required environment variables in `.env`:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 export GOOGLE_GENERATIVE_AI_API_KEY=AIza...
+```
+
+Set your Playwright project to read `.env` by adding the following to `playwright.config.ts`:
+
+```typescript
+import { defineConfig } from '@playwright/test';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 ```
 
 Basic usage with Playwright:
@@ -25,21 +35,29 @@ Basic usage with Playwright:
 import { test } from "@playwright/test";
 import { runSteps } from "passmark";
 
-test("user signup flow", async ({ page }) => {
+test.use({
+  headless: !!process.env.CI,
+});
+
+test("Shopping cart tests", async ({ page }) => {
   await runSteps({
     page,
-    userFlow: "User Signup",
+    userFlow: "Add product to cart",
     steps: [
-      { description: "Navigate to the signup page" },
-      { description: "Fill in the email field", data: { value: "test@example.com" } },
-      { description: "Click the submit button" },
+      { description: "Navigate to https://demo.vercel.store" },
+      { description: "Click Acme Circles T-Shirt" },
+      { description: "Select color", data: { value: "White" } },
+      { description: "Select size", data: { value: "S" } },
+      { description: "Add to cart", waitUntil: "My Cart is visible" },
     ],
-    assertions: [{ assertion: "A welcome message is displayed" }],
+    assertions: [{ assertion: "You can see My Cart with Acme Circles T-Shirt" }],
     test,
     expect
   });
 });
 ```
+
+You can run `npx playwright show-report` to see a detailed report of the test execution, including an AI summary at the top, provided by Passmark.
 
 ## Features
 
@@ -238,7 +256,8 @@ Step Request
 
 ## Known Limitations
 
-Uses Playwright's private `_snapshotForAI()` API for accessibility snapshots. This API is not part of Playwright's public contract and may change in future versions.
+- Uses Playwright's private `_snapshotForAI()` API for accessibility snapshots. This API is not part of Playwright's public contract and may change in future versions.
+- Tests are not comprehensive at the moment. We welcome contributions to expand test coverage, especially around edge cases and failure modes.
 
 ## Contributing
 

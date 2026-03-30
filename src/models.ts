@@ -38,6 +38,7 @@ function getAnthropicProvider() {
 const MODEL_DIRECT_ALIASES: Record<string, string> = {
   "gemini-3-flash": "gemini-3-flash-preview",
   "claude-sonnet-4.6": "claude-sonnet-4-6",
+  "claude-haiku-4.5": "claude-haiku-4-5",
 };
 
 function resolveDirectModelName(modelName: string): string {

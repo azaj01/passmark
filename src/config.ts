@@ -18,7 +18,7 @@ export type ModelConfig = {
   userFlowLow?: string;
   /** Model for running user flows (high effort). Default: google/gemini-3.1-pro-preview */
   userFlowHigh?: string;
-  /** Model for assertions (primary). Default: anthropic/claude-4.5-haiku */
+  /** Model for assertions (primary). Default: anthropic/claude-haiku-4.5 */
   assertionPrimary?: string;
   /** Model for assertions (secondary). Default: google/gemini-3-flash */
   assertionSecondary?: string;
@@ -32,7 +32,7 @@ export const DEFAULT_MODELS: Required<ModelConfig> = {
   stepExecution: "google/gemini-3-flash",
   userFlowLow: "google/gemini-3-flash",
   userFlowHigh: "google/gemini-3.1-pro-preview",
-  assertionPrimary: "anthropic/claude-4.5-haiku",
+  assertionPrimary: "anthropic/claude-haiku-4.5",
   assertionSecondary: "google/gemini-3-flash",
   assertionArbiter: "google/gemini-3.1-pro-preview",
   utility: "google/gemini-2.5-flash",
