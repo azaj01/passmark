@@ -33,7 +33,7 @@ vi.mock("../utils", () => ({
 
 import { assert } from "../assertion";
 import { withTimeout } from "../utils";
-import { generateText, generateObject } from "ai";
+import { generateText } from "ai";
 
 function createMockPage() {
   return {
@@ -44,6 +44,41 @@ function createMockPage() {
 
 const mockTest = { info: () => ({ annotations: [] }) } as any;
 
+type AssertionObj = { assertionPassed: boolean; confidenceScore: number; reasoning: string };
+
+// Helper: build a generateText mock impl that dispatches based on model id
+// and whether a structured `output` was requested.
+function makeGenerateTextImpl(opts: {
+  claude: AssertionObj;
+  gemini: AssertionObj | (() => AssertionObj);
+  arbiter?: AssertionObj;
+}) {
+  return async (args: any) => {
+    const model = String(args.model ?? "");
+    const wantsStructured = Boolean(args.output);
+
+    if (!wantsStructured) {
+      // Claude's first call returns free-form text
+      return { text: "claude text" } as any;
+    }
+
+    if (model.includes("anthropic")) {
+      return { output: opts.claude } as any;
+    }
+    if (model.includes("gemini-3-flash")) {
+      const g = typeof opts.gemini === "function" ? (opts.gemini as () => AssertionObj)() : opts.gemini;
+      return { output: g } as any;
+    }
+    if (model.includes("3.1-pro-preview")) {
+      return {
+        output:
+          opts.arbiter ?? { assertionPassed: false, confidenceScore: 0, reasoning: "no arbiter set" },
+      } as any;
+    }
+    return { output: { assertionPassed: false, confidenceScore: 0, reasoning: "unknown" } } as any;
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -52,20 +87,12 @@ describe("assert consensus logic", () => {
   it("returns pass when both models agree", async () => {
     const page = createMockPage();
 
-    // Claude returns text then get converted to object
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: looks good" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        return { object: { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: OK" } };
-      }
-      // Arbiter (not used here) fallback
-      return { object: { assertionPassed: true, confidenceScore: 85, reasoning: "Arbiter: OK" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: looks good" },
+        gemini: { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: OK" },
+      }) as any,
+    );
 
     const res = await assert({
       page,
@@ -78,24 +105,17 @@ describe("assert consensus logic", () => {
     expect(res).toContain("✅ passed");
     expect(res).toContain("Gemini: OK");
     expect(generateText).toHaveBeenCalled();
-    expect(generateObject).toHaveBeenCalled();
   });
 
   it("returns fail when both models agree failure", async () => {
     const page = createMockPage();
 
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: false, confidenceScore: 20, reasoning: "Claude: not found" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        return { object: { assertionPassed: false, confidenceScore: 10, reasoning: "Gemini: nope" } };
-      }
-      return { object: { assertionPassed: false, confidenceScore: 5, reasoning: "Arbiter: nope" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: false, confidenceScore: 20, reasoning: "Claude: not found" },
+        gemini: { assertionPassed: false, confidenceScore: 10, reasoning: "Gemini: nope" },
+      }) as any,
+    );
 
     const res = await assert({
       page,
@@ -112,21 +132,13 @@ describe("assert consensus logic", () => {
   it("consults arbiter when models disagree and arbiter decides pass", async () => {
     const page = createMockPage();
 
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: true, confidenceScore: 95, reasoning: "Claude: yes" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        return { object: { assertionPassed: false, confidenceScore: 30, reasoning: "Gemini: no" } };
-      }
-      if (model.includes("3.1-pro-preview")) {
-        return { object: { assertionPassed: true, confidenceScore: 70, reasoning: "Arbiter: I side with Claude" } };
-      }
-      return { object: { assertionPassed: false, confidenceScore: 0, reasoning: "unknown" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: true, confidenceScore: 95, reasoning: "Claude: yes" },
+        gemini: { assertionPassed: false, confidenceScore: 30, reasoning: "Gemini: no" },
+        arbiter: { assertionPassed: true, confidenceScore: 70, reasoning: "Arbiter: I side with Claude" },
+      }) as any,
+    );
 
     const res = await assert({
       page,
@@ -143,21 +155,13 @@ describe("assert consensus logic", () => {
   it("consults arbiter when models disagree and arbiter decides fail", async () => {
     const page = createMockPage();
 
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: true, confidenceScore: 60, reasoning: "Claude: yes" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        return { object: { assertionPassed: false, confidenceScore: 40, reasoning: "Gemini: no" } };
-      }
-      if (model.includes("3.1-pro-preview")) {
-        return { object: { assertionPassed: false, confidenceScore: 45, reasoning: "Arbiter: I disagree, it fails" } };
-      }
-      return { object: { assertionPassed: false, confidenceScore: 0, reasoning: "unknown" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: true, confidenceScore: 60, reasoning: "Claude: yes" },
+        gemini: { assertionPassed: false, confidenceScore: 40, reasoning: "Gemini: no" },
+        arbiter: { assertionPassed: false, confidenceScore: 45, reasoning: "Arbiter: I disagree, it fails" },
+      }) as any,
+    );
 
     const res = await assert({
       page,
@@ -174,23 +178,19 @@ describe("assert consensus logic", () => {
   it("retries once on transient model errors and succeeds", async () => {
     const page = createMockPage();
 
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
     let geminiCalls = 0;
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: ok" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        geminiCalls += 1;
-        if (geminiCalls === 1) {
-          throw new Error("transient model error");
-        }
-        return { object: { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: ok after retry" } };
-      }
-      return { object: { assertionPassed: true, confidenceScore: 50, reasoning: "arbiter" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: ok" },
+        gemini: () => {
+          geminiCalls += 1;
+          if (geminiCalls === 1) {
+            throw new Error("transient model error");
+          }
+          return { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: ok after retry" };
+        },
+      }) as any,
+    );
 
     const res = await assert({
       page,
@@ -211,18 +211,12 @@ describe("assert consensus logic", () => {
     // Make withTimeout reject once to simulate timeout
     vi.mocked(withTimeout).mockImplementationOnce(() => Promise.reject(new Error("timed out")) as any);
 
-    vi.mocked(generateText).mockResolvedValue({ text: "claude text" });
-
-    vi.mocked(generateObject).mockImplementation(async (opts: any) => {
-      const model = String(opts.model ?? "");
-      if (model.includes("anthropic")) {
-        return { object: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: ok" } };
-      }
-      if (model.includes("gemini-3-flash")) {
-        return { object: { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: ok" } };
-      }
-      return { object: { assertionPassed: true, confidenceScore: 50, reasoning: "arbiter" } };
-    });
+    vi.mocked(generateText).mockImplementation(
+      makeGenerateTextImpl({
+        claude: { assertionPassed: true, confidenceScore: 90, reasoning: "Claude: ok" },
+        gemini: { assertionPassed: true, confidenceScore: 80, reasoning: "Gemini: ok" },
+      }) as any,
+    );
 
     const res = await assert({
       page,
