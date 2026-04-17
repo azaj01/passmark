@@ -2,8 +2,6 @@ import { AIModelError, ConfigurationError } from "./errors";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { createAiGateway } from "ai-gateway-provider";
-import { createUnified } from "ai-gateway-provider/providers/unified";
 import { gateway, type LanguageModel } from "ai";
 import { wrapAISDKModel } from "axiom/ai";
 import { getConfig } from "./config";
@@ -16,14 +14,14 @@ function wrapModel(model: LanguageModel): LanguageModel {
 let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
 let _anthropic: ReturnType<typeof createAnthropic> | null = null;
 let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
-let _cloudflareGateway: ReturnType<typeof createAiGateway> | null = null;
-let _cloudflareUnified: ReturnType<typeof createUnified> | null = null;
+let _cloudflareGoogle: ReturnType<typeof createGoogleGenerativeAI> | null = null;
+let _cloudflareAnthropic: ReturnType<typeof createAnthropic> | null = null;
 
 function getGoogleProvider() {
   if (!_google) {
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       throw new ConfigurationError(
-        "GOOGLE_GENERATIVE_AI_API_KEY isn't set. Add it to your environment (for example: export GOOGLE_GENERATIVE_AI_API_KEY=your_key), or use a gateway: configure({ ai: { gateway: 'vercel' } }) with AI_GATEWAY_API_KEY, configure({ ai: { gateway: 'openrouter' } }) with OPENROUTER_API_KEY, or configure({ ai: { gateway: 'cloudflare' } }) with CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY, and CLOUDFLARE_AI_GATEWAY_API_KEY. See .env.example for reference.",
+        "GOOGLE_GENERATIVE_AI_API_KEY isn't set. Add it to your environment (for example: export GOOGLE_GENERATIVE_AI_API_KEY=your_key), or use a gateway: configure({ ai: { gateway: 'vercel' } }) with AI_GATEWAY_API_KEY, configure({ ai: { gateway: 'openrouter' } }) with OPENROUTER_API_KEY, or configure({ ai: { gateway: 'cloudflare' } }) with CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY, GOOGLE_GENERATIVE_AI_API_KEY, and CLOUDFLARE_AI_GATEWAY_API_KEY. See .env.example for reference.",
       );
     }
     _google = createGoogleGenerativeAI({
@@ -37,7 +35,7 @@ function getAnthropicProvider() {
   if (!_anthropic) {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new ConfigurationError(
-        "ANTHROPIC_API_KEY isn't set. Add it to your environment (for example: export ANTHROPIC_API_KEY=your_key), or use a gateway: configure({ ai: { gateway: 'vercel' } }) with AI_GATEWAY_API_KEY, configure({ ai: { gateway: 'openrouter' } }) with OPENROUTER_API_KEY, or configure({ ai: { gateway: 'cloudflare' } }) with CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY, and CLOUDFLARE_AI_GATEWAY_API_KEY. See .env.example for reference.",
+        "ANTHROPIC_API_KEY isn't set. Add it to your environment (for example: export ANTHROPIC_API_KEY=your_key), or use a gateway: configure({ ai: { gateway: 'vercel' } }) with AI_GATEWAY_API_KEY, configure({ ai: { gateway: 'openrouter' } }) with OPENROUTER_API_KEY, or configure({ ai: { gateway: 'cloudflare' } }) with CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY, ANTHROPIC_API_KEY, and CLOUDFLARE_AI_GATEWAY_API_KEY. See .env.example for reference.",
       );
     }
     _anthropic = createAnthropic({
@@ -61,33 +59,66 @@ function getOpenRouterProvider() {
   return _openrouter;
 }
 
-function getCloudflareAiGateway() {
-  if (!_cloudflareGateway) {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const gatewayName = process.env.CLOUDFLARE_AI_GATEWAY;
-    const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
-    if (!accountId || !gatewayName || !apiKey) {
-      throw new ConfigurationError(
-        "Cloudflare AI Gateway requires CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY (gateway name), and CLOUDFLARE_AI_GATEWAY_API_KEY. See https://developers.cloudflare.com/ai-gateway/integrations/vercel-ai-sdk/ and .env.example.",
-      );
-    }
-    _cloudflareGateway = createAiGateway({
-      accountId,
-      gateway: gatewayName,
-      apiKey,
-    });
-  }
-  return _cloudflareGateway;
-}
-
-function getCloudflareUnified() {
-  if (!_cloudflareUnified) {
-    const unifiedApiKey = process.env.CLOUDFLARE_AI_UNIFIED_API_KEY;
-    _cloudflareUnified = createUnified(
-      unifiedApiKey ? { apiKey: unifiedApiKey } : undefined,
+/**
+ * Builds the per-provider Cloudflare AI Gateway base URL and (optional)
+ * `cf-aig-authorization` header. We route through Cloudflare's native
+ * provider paths (not the Unified/OpenAI-compat endpoint) so that
+ * provider-specific fields — notably Gemini's `thought_signature` on
+ * thinking models — pass through unmodified.
+ *
+ * @see https://developers.cloudflare.com/ai-gateway/usage/providers/google-ai-studio/
+ * @see https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/
+ */
+function getCloudflareGatewayConfig(providerPath: string): {
+  baseURL: string;
+  headers?: Record<string, string>;
+} {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const gatewayName = process.env.CLOUDFLARE_AI_GATEWAY;
+  if (!accountId || !gatewayName) {
+    throw new ConfigurationError(
+      "Cloudflare AI Gateway requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_GATEWAY (gateway name). You must also set the upstream provider key (GOOGLE_GENERATIVE_AI_API_KEY and/or ANTHROPIC_API_KEY). If the gateway is authenticated, also set CLOUDFLARE_AI_GATEWAY_API_KEY. See .env.example for reference.",
     );
   }
-  return _cloudflareUnified;
+  const cfAigToken = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
+  return {
+    baseURL: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayName}/${providerPath}`,
+    headers: cfAigToken ? { "cf-aig-authorization": `Bearer ${cfAigToken}` } : undefined,
+  };
+}
+
+function getCloudflareGoogleProvider() {
+  if (!_cloudflareGoogle) {
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new ConfigurationError(
+        "GOOGLE_GENERATIVE_AI_API_KEY isn't set. Cloudflare AI Gateway proxies requests to Google AI Studio and requires your Google API key. Add GOOGLE_GENERATIVE_AI_API_KEY to your environment.",
+      );
+    }
+    const { baseURL, headers } = getCloudflareGatewayConfig("google-ai-studio/v1beta");
+    _cloudflareGoogle = createGoogleGenerativeAI({
+      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      baseURL,
+      headers,
+    });
+  }
+  return _cloudflareGoogle;
+}
+
+function getCloudflareAnthropicProvider() {
+  if (!_cloudflareAnthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new ConfigurationError(
+        "ANTHROPIC_API_KEY isn't set. Cloudflare AI Gateway proxies requests to Anthropic and requires your Anthropic API key. Add ANTHROPIC_API_KEY to your environment.",
+      );
+    }
+    const { baseURL, headers } = getCloudflareGatewayConfig("anthropic/v1");
+    _cloudflareAnthropic = createAnthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      baseURL,
+      headers,
+    });
+  }
+  return _cloudflareAnthropic;
 }
 
 /**
@@ -118,41 +149,6 @@ function resolveOpenRouterModelId(modelId: string): string {
 }
 
 /**
- * Cloudflare Unified (OpenAI compat) expects `google-ai-studio/<model>` for Gemini via
- * Google AI Studio provider keys, not `google/<model>` (which yields Invalid provider / 2008).
- * Skip when the id already targets AI Studio, Vertex, or Workers AI.
- * @see https://developers.cloudflare.com/ai-gateway/usage/chat-completion/
- */
-function rewriteGooglePrefixForCloudflareUnified(modelId: string): string {
-  if (
-    modelId.startsWith("google-ai-studio/") ||
-    modelId.startsWith("google-vertex-ai/") ||
-    modelId.startsWith("workers-ai/")
-  ) {
-    return modelId;
-  }
-  if (modelId.startsWith("google/")) {
-    return `google-ai-studio/${modelId.slice("google/".length)}`;
-  }
-  return modelId;
-}
-
-/**
- * Resolves Passmark canonical model ids to Cloudflare AI Gateway Unified model ids.
- * Applies the same Google model-name aliases as the direct API (`google/gemini-3-flash` →
- * `google-ai-studio/gemini-3-flash-preview`) so Unified does not call a non-existent model id.
- * Exported for unit tests.
- */
-export function resolveCloudflareUnifiedModelId(modelId: string): string {
-  const rewritten = rewriteGooglePrefixForCloudflareUnified(modelId);
-  if (rewritten.startsWith("google-ai-studio/")) {
-    const modelName = rewritten.slice("google-ai-studio/".length);
-    return `google-ai-studio/${resolveDirectModelName(modelName)}`;
-  }
-  return rewritten;
-}
-
-/**
  * Resolves a canonical model ID to a LanguageModel instance wrapped with Axiom instrumentation.
  * Input format: "provider/model-name" (e.g. "google/gemini-3-flash")
  *
@@ -161,7 +157,10 @@ export function resolveCloudflareUnifiedModelId(modelId: string): string {
  * (e.g. "gemini-3-flash" → "gemini-3-flash-preview" for Google's direct API).
  *
  * When gateway is "vercel", routes through the Vercel AI Gateway as-is.
- * When gateway is "cloudflare", routes through Cloudflare AI Gateway using the Unified API.
+ * When gateway is "openrouter", routes through OpenRouter.
+ * When gateway is "cloudflare", routes through Cloudflare AI Gateway using the
+ * provider-native paths (google-ai-studio, anthropic) so provider-specific fields
+ * like Gemini's thought_signature pass through unchanged.
  * When gateway is "none" (default), creates a direct provider instance with alias resolution.
  * All paths wrap the model with wrapAISDKModel for tracing when Axiom is enabled.
  */
@@ -181,13 +180,21 @@ export function resolveModel(modelId: string): LanguageModel {
     return wrapModel(getOpenRouterProvider()(resolveOpenRouterModelId(modelId)));
   }
 
-  if (gatewayConfig === "cloudflare") {
-    const unifiedId = resolveCloudflareUnifiedModelId(modelId);
-    return wrapModel(getCloudflareAiGateway()(getCloudflareUnified()(unifiedId)));
-  }
-
   const [provider, ...rest] = modelId.split("/");
   const modelName = rest.join("/");
+
+  if (gatewayConfig === "cloudflare") {
+    switch (provider) {
+      case "google":
+        return wrapModel(getCloudflareGoogleProvider()(resolveDirectModelName(modelName)));
+      case "anthropic":
+        return wrapModel(getCloudflareAnthropicProvider()(resolveDirectModelName(modelName)));
+      default:
+        throw new AIModelError(
+          `Cloudflare AI Gateway routing is not configured for provider: ${provider}`,
+        );
+    }
+  }
 
   switch (provider) {
     case "google":
