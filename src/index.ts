@@ -586,7 +586,15 @@ export const runSteps = async ({
   }
 
   if (processedAssertions && processedAssertions.length > 0 && expect) {
-    for (const { assertion, effort, images } of processedAssertions) {
+    for (const { assertion: preProcessedAssertion, effort, images } of processedAssertions) {
+      // Re-resolve placeholders against the latest localValues so extracted
+      // values from steps (e.g. {{run.emailContent}}) get substituted in.
+      const assertion = replacePlaceholders(
+        preProcessedAssertion,
+        localValues,
+        globalValues,
+        projectDataValues,
+      );
       logger.info(`Running assertion: ${assertion}`);
 
       const id = shortid.generate();
