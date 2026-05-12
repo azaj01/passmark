@@ -57,7 +57,7 @@ export const assert = async ({
   images,
   failSilently,
   maxRetries = 1,
-  onRetry = (retryCount: number, previousResult: AssertionResult) => {},
+  onRetry = (retryCount: number, previousResult: AssertionResult) => { },
   video,
   videoFilePath,
 }: AssertionOptions): Promise<string> => {
@@ -90,7 +90,7 @@ export const assert = async ({
     }
 
     test?.info().annotations.push({
-      type: "AI Summary (video)",
+      type: "AI Summary (video analysis)",
       description: videoResult.reasoning,
     });
 
