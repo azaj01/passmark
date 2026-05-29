@@ -42,13 +42,20 @@ export type UserFlowOptions = {
 
 /**
  * Configuration for extracting data from a page using AI.
- * The extracted value will be stored as {{run.keyName}} and can be used in subsequent steps.
+ * The extracted value will be stored under the chosen scope and can be used in subsequent steps.
  */
 export type ExtractionConfig = {
-  /** Key name - the extracted value will be accessible as {{run.keyName}} in subsequent steps' data.value */
+  /** Key name - the extracted value will be accessible as {{run.keyName}} (local scope) or {{global.keyName}} (global scope) in subsequent steps' data.value */
   as: string;
   /** Prompt describing what to extract from the page/URL */
   prompt: string;
+  /**
+   * Where to store the extracted value.
+   * - "local" (default): stored as {{run.as}}, available only within the current runSteps call.
+   * - "global": stored as {{global.as}} and persisted to Redis under the runSteps `executionId`,
+   *   so subsequent runSteps calls with the same executionId can read it. Requires `executionId`.
+   */
+  scope?: "local" | "global";
 };
 
 export type Step = {
@@ -59,7 +66,7 @@ export type Step = {
   isScript?: boolean;
   script?: string;
   moduleId?: string;
-  /** Extract data from page/URL using AI and store as {{run.as}} for later use */
+  /** Extract data from page/URL using AI and store as {{run.as}} (local) or {{global.as}} (global) for later use */
   extract?: ExtractionConfig;
   /** Switch the active page before this step runs. 'main' = original tab, 'latest' = most recently opened, or numeric index. */
   switchToTab?: "main" | "latest" | number;

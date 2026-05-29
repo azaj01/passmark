@@ -22,6 +22,9 @@ export type LocalPlaceholders = {
   "{{run.email}}": string;
   "{{run.dynamicEmail}}": string;
   "{{run.phoneNumber}}": string;
+} & {
+  // Values extracted at runtime via `extract` with scope "local" are stored as {{run.<as>}}.
+  [key: string]: string;
 };
 
 /**
@@ -35,6 +38,9 @@ export type GlobalPlaceholders = {
   "{{global.email}}": string;
   "{{global.dynamicEmail}}": string;
   "{{global.phoneNumber}}": string;
+} & {
+  // Values extracted at runtime via `extract` with scope "global" are stored as {{global.<as>}}.
+  [key: string]: string;
 };
 
 /**
@@ -214,6 +220,8 @@ export async function generateGlobalValues(
   const emailDomain = getConfig().email?.domain;
 
   return {
+    // Preserve any runtime-extracted {{global.<as>}} values so they survive across runSteps calls.
+    ...(existingValues ?? {}),
     "{{global.shortid}}": existingValues?.["{{global.shortid}}"] ?? shortid.generate(),
     "{{global.fullName}}": existingValues?.["{{global.fullName}}"] ?? faker.person.fullName(),
     "{{global.email}}": existingValues?.["{{global.email}}"] ?? faker.internet.email(),
@@ -410,6 +418,16 @@ export async function processPlaceholders(
     throw new ValidationError(
       "{{global.*}} placeholders require an executionId. " +
       "Please provide executionId in runSteps options to use global placeholders.",
+    );
+  }
+
+  // Check if any step extracts into the global scope without an executionId
+  const hasGlobalExtract = steps.some((step) => step.extract?.scope === "global");
+
+  if (hasGlobalExtract && !executionId) {
+    throw new ValidationError(
+      'extract with scope "global" requires an executionId. ' +
+        "Please provide executionId in runSteps options to extract values into the global scope.",
     );
   }
 

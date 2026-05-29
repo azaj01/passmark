@@ -42,7 +42,7 @@ import {
 } from "./data-cache";
 import { resolveAI } from "./config";
 import { runCUALoop, buildRunStepsPromptCUA, buildRunUserFlowPromptCUA } from "./cua";
-import { extractDataWithAI } from "./extract";
+import { applyExtraction } from "./extract";
 import { logger } from "./logger";
 import { resolveModel } from "./models";
 import { runSecureScript } from "./utils/secure-script-runner";
@@ -264,16 +264,13 @@ export const runSteps = async ({
         // Handle data extraction if specified
         // This is done post script execution
         if (step.extract) {
-          const snapshot = await safeSnapshot(tabManager);
-          const url = tabManager.active().url();
-          const extracted = await extractDataWithAI({
-            snapshot,
-            url,
-            prompt: step.extract.prompt,
+          await applyExtraction({
+            extract: step.extract,
+            tabManager,
+            localValues,
+            globalValues,
+            executionId,
           });
-          const placeholderKey = `{{run.${step.extract.as}}}` as keyof typeof localValues;
-          (localValues as Record<string, string>)[placeholderKey] = extracted;
-          logger.info(`Extracted {{run.${step.extract.as}}}: "${extracted}"`);
         }
 
         if (onStepEnd) {
@@ -342,16 +339,13 @@ export const runSteps = async ({
       }
 
       if (step.extract) {
-        const snapshot = await safeSnapshot(tabManager);
-        const url = tabManager.active().url();
-        const extracted = await extractDataWithAI({
-          snapshot,
-          url,
-          prompt: step.extract.prompt,
+        await applyExtraction({
+          extract: step.extract,
+          tabManager,
+          localValues,
+          globalValues,
+          executionId,
         });
-        const placeholderKey = `{{run.${step.extract.as}}}` as keyof typeof localValues;
-        (localValues as Record<string, string>)[placeholderKey] = extracted;
-        logger.info(`Extracted {{run.${step.extract.as}}}: "${extracted}"`);
       }
 
       if (onStepEnd) {
@@ -447,16 +441,13 @@ export const runSteps = async ({
         // Handle data extraction if specified
         // This is done post cached step execution
         if (step.extract) {
-          const snapshot = await safeSnapshot(tabManager);
-          const url = tabManager.active().url();
-          const extracted = await extractDataWithAI({
-            snapshot,
-            url,
-            prompt: step.extract.prompt,
+          await applyExtraction({
+            extract: step.extract,
+            tabManager,
+            localValues,
+            globalValues,
+            executionId,
           });
-          const placeholderKey = `{{run.${step.extract.as}}}` as keyof typeof localValues;
-          (localValues as Record<string, string>)[placeholderKey] = extracted;
-          logger.info(`Extracted {{run.${step.extract.as}}}: "${extracted}"`);
         }
         continue;
       } catch (error) {
@@ -573,16 +564,13 @@ export const runSteps = async ({
     // Handle data extraction if specified
     // This is done post AI step execution
     if (step.extract) {
-      const snapshot = await safeSnapshot(tabManager);
-      const url = tabManager.active().url();
-      const extracted = await extractDataWithAI({
-        snapshot,
-        url,
-        prompt: step.extract.prompt,
+      await applyExtraction({
+        extract: step.extract,
+        tabManager,
+        localValues,
+        globalValues,
+        executionId,
       });
-      const placeholderKey = `{{run.${step.extract.as}}}` as keyof typeof localValues;
-      (localValues as Record<string, string>)[placeholderKey] = extracted;
-      logger.info(`Extracted {{run.${step.extract.as}}}: "${extracted}"`);
     }
 
     if (onStepEnd) {
