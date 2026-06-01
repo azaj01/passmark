@@ -67,6 +67,7 @@ export type ProcessPlaceholdersResult = {
   localValues: LocalPlaceholders;
   globalValues?: GlobalPlaceholders;
   projectDataValues?: ProjectDataPlaceholders;
+  hasGlobalPlaceholders: boolean;
 };
 
 // =============================================================================
@@ -527,18 +528,25 @@ export async function processPlaceholders(
     localValues,
     globalValues,
     projectDataValues,
+    hasGlobalPlaceholders,
   };
 }
 
 /**
  * Gets the dynamic email to use for email extraction.
- * Prefers global email if available, otherwise falls back to local email.
+ * Only prefers global email when preferGlobal is true (i.e. the current step
+ * set actually references {{global.*}} placeholders). Otherwise always returns
+ * the run-scoped email so each runSteps call gets its own isolated address.
  */
 export function getDynamicEmail(
   localValues: LocalPlaceholders,
   globalValues?: GlobalPlaceholders,
+  preferGlobal = false,
 ): string {
-  return globalValues?.["{{global.dynamicEmail}}"] || localValues["{{run.dynamicEmail}}"];
+  if (preferGlobal && globalValues?.["{{global.dynamicEmail}}"]) {
+    return globalValues["{{global.dynamicEmail}}"];
+  }
+  return localValues["{{run.dynamicEmail}}"];
 }
 
 /**
