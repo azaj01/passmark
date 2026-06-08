@@ -31,6 +31,7 @@ export type UserFlowOptions = {
   auth?: {
     email: string;
     password: string;
+    callbackUrl: string;
   };
   model?: LanguageModel;
   /**
@@ -136,7 +137,7 @@ export type RunStepsOptions = {
   // optional fields
   bypassCache?: boolean;
   failAssertionsSilently?: boolean;
-  auth?: { email: string; password: string };
+  auth?: { email: string; password: string; callbackUrl: string };
   onStepStart?: (step: { id: string; description: string }) => void;
   onStepEnd?: (step: { id: string; description: string }) => void;
   onReasoning?: (step: { id: string; reasoning: string }) => void;
@@ -155,9 +156,9 @@ export type RunStepsOptions = {
    */
   ai?: AIOverride;
 } & (
-    | {
+  | {
       assertions: Omit<AssertionOptions, "page" | "test" | "expect">[];
       expect: Expect<{}>;
     }
-    | { assertions?: never; expect?: never }
-  );
+  | { assertions?: never; expect?: never }
+);
